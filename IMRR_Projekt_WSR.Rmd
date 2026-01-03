@@ -1,0 +1,541 @@
+---
+title: |
+  \huge \textbf{Ilościowe Miary Ryzyka Rynkowego}
+author: "| Wiktor Suchoński-Romaniuk\n"
+output:
+  pdf_document:
+    number_sections: true
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+mainfont: Arial
+fontsize: 11pt
+geometry: left=0.4in, right=0.4in, top=0.6in, bottom=0.6in
+header-includes:
+- \usepackage{caption}
+- \usepackage{graphicx}
+- \usepackage{makecell}
+- \captionsetup[table]{ font={small, it}, labelfont=bf, name=Tabela}
+- \captionsetup[figure]{font={small, it}, labelfont=bf, name=Wykres}
+- \usepackage{floatrow}
+- \setcounter{secnumdepth}{3}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+options(OutDec = ",")
+options(scipen = 999)
+```
+
+
+```{r}
+library(psych)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(stats)
+library(kableExtra)
+library(zoo)
+```
+
+# Wprowadzenie
+
+Analizowanym instrumentem są akcje spółki Fast Retailing Co., japońskiego giganta odzieżowego, właściciela m.in. znanej marki Uniqlo. Dane obejmują okres 8 lat (listopad 2017 – listopad 2025). 
+
+```{r}
+dane_dzienne <- read.csv("9983_jp_d.csv")
+
+dane_dzienne$Data <- ymd(dane_dzienne$Data)
+
+cols = c("Data", "Zamkniecie")
+```
+
+```{r}
+dane_dzienne <- dane_dzienne %>%
+  mutate(Zamkniecie = if_else(Data < ymd("2023-02-26"), Zamkniecie / 3, Zamkniecie))
+
+dzienne <- dane_dzienne[cols]
+```
+
+## Dzienne notowania
+
+Na poniższym wykresie zostały przedstawione notowania dzienne japońskiej spółki. W tabeli zostały przedstawione podstawowe statystyki opisowe cen zamknięcia.
+
+```{r fig.align='center', fig.height=3}
+ggplot(data = dzienne, aes(x = Data, y = Zamkniecie)) +
+  geom_line(color = "steelblue", linewidth = 0.8) + 
+  labs(
+    title = "Wykres notowań dziennych",
+    x = "Data",
+    y = "Kurs zamknięcia"
+  ) +
+  theme_bw() 
+
+```
+
+
+
+```{r}
+stat <- describe(dzienne$Zamkniecie)
+
+statystyki <- data.frame(
+  Minimum = round(stat$min, 2),
+  Mediana = round(stat$median, 2),
+  Maksimum = round(stat$max, 2),
+  Skośność = round(stat$skew, 2),
+  Kurtoza = round(stat$kurtosis, 2),
+  Średnia = round(stat$mean, 2),
+  Odchylenie = round(stat$sd, 2)
+)
+
+C0<-0
+statystyki %>%
+  kable( longtable = TRUE, booktabs = TRUE,
+        align = "c", caption = "Podstawowe statystyki opisowe kursu zamknięcia") %>%
+  row_spec(C0, bold = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "bordered"), 
+                font_size = 11, full_width = FALSE, position = "center")
+```
+
+**Interpretacja:**
+Wykres przedstawia notowania spółki w silnym trendzie wzrostowym, przerywanym spadkami, z których najpoważniejsza na początku 2020 roku wyznaczyła historyczne minimum (ok. 12 500 JPY). Od dołka pandemicznego kurs wzrósł ponad czterokrotnie, osiągając w 2025 roku maksimum na poziomie 56 660 JPY.
+
+Odchylenie standardowe ponad 11 tys. JPY potwierdza dużą zmienność waloru. Średnia cena (28 645 JPY) jest wyższa od mediany (25 795 JPY), co wraz z dodatnią skośnością (0,7) wskazuje na prawostronną asymetrię rozkładu – wynik dominacji wysokich wycen z ostatnich lat hossy. Ujemna kurtoza (-0,69) świadczy o płaskim rozkładzie, czyli dużym rozproszeniu notowań w szerokim przedziale cenowym, bez silnej koncentracji wokół jednej wartości.
+
+\newpage
+
+## Stopy zwrotu
+
+Na poniższym wykresie zostały zaprezentowane stopy zwrotów z ostatnich 8 lat po zmianie ze zwykłych na logarytmiczne. Wykres pozwala zaobserwować inną skalę fluktuacji i trendy dominujące na rynku. Ukazuje dużą zmienność i krótkoterminowe szoki
+
+
+```{r}
+#Stopy zwykłe
+cena_dzienna <- dzienne$Zamkniecie
+dzienna_stopa_zwrotu <- (cena_dzienna[2:length(cena_dzienna)] - cena_dzienna[1:(length(cena_dzienna)-1)]) / cena_dzienna[1:(length(cena_dzienna)-1)]
+
+dzienne_stopy <- dzienne[-1, ]
+dzienne_stopy$Stopa_zwrotu <- dzienna_stopa_zwrotu * 100
+```
+
+
+```{r}
+#Stopy logarytmiczne
+cena_dzienna_log <- dzienne$Zamkniecie
+dzienna_stopa_log <- log(cena_dzienna[2:length(cena_dzienna)] / cena_dzienna[1:(length(cena_dzienna)-1)]) * 100
+
+dzienne_stopy_log <- dzienne[-1, ]
+dzienne_stopy_log$Stopa_logarytmiczna <- dzienna_stopa_log
+```
+
+```{r}
+dzienna_ramka <- data.frame(Data = dzienne_stopy$Data, Stopy = dzienne_stopy$Stopa_zwrotu, Stopy_log = dzienne_stopy_log$Stopa_logarytmiczna)
+
+```
+
+
+```{r fig.align='center', fig.height=3}
+ggplot(data = dzienne_stopy_log, aes(x = Data, y = Stopa_logarytmiczna)) + geom_line(color = "darkred", linewidth = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") + 
+  labs(
+    title = "Dzienne logarytmiczne stopy zwrotu",
+    subtitle = "Zmienność notowań",
+    x = "Data",
+    y = "Stopa zwrotu [%] "
+  ) +
+  theme_bw()
+
+```
+
+```{r}
+stat_log <- describe(dzienne_stopy_log$Stopa_logarytmiczna)
+
+statystyki_log <- data.frame(
+  Minimum = round(stat_log$min, 2),
+  Mediana = round(stat_log$median, 2),
+  Maksimum = round(stat_log$max, 2),
+  Skośność = round(stat_log$skew, 2),
+  Kurtoza = round(stat_log$kurtosis, 2),
+  Średnia = round(stat_log$mean, 2),
+  Odchylenie = round(stat_log$sd, 2)
+)
+
+C0<-0
+statystyki_log %>%
+  kable( longtable = TRUE, booktabs = TRUE,
+        align = "c", caption = "Podstawowe statystyki opisowe stóp zwrotów") %>%
+  row_spec(C0, bold = TRUE, align = "c") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "bordered"), 
+                font_size = 11, full_width = FALSE, position = "center")
+```
+
+**Interpretacja:**
+
+Na wykresie obserwujemy okresy względnego spokoju koło roku 2019, przeplatane okresami gwałtownych turbulencji. Dominującym elementem wykresu jest szok rynkowy z początku 2020 roku, widoczny jako ekstremalna "szpilka" spadkowa, po której nastąpiło równie silne odreagowanie. Wtedy odnotowano min oraz max czyli kolejno 14,12% straty oraz 12,92% zysku. W latach 2022–2025 obserwujemy podwyższoną zmienność.
+Przeciętna dzienna zmienność wynosi około 2%. Kurtoza (4,14) wskazuje na występowanie grubych ogonów. Oznacza to, że prawdopodobieństwo wystąpienia zdarzeń ekstremalnych jest w rzeczywistości wyższe, niż zakładałby standardowy model normalny. Średnia bliska zeru oraz niemal zerowa skośność wskazują na brak stałego trendu w skali dziennej oraz symetrię rozkładu – siła potencjalnych wzrostów i spadków jest zbliżona.
+
+\newpage
+
+# Wyznaczenie oszacowań VaR i ES
+
+Dla logarytmicznych stóp zwrotów wyznaczono Value at Risk oraz Expected Shortfall za pomocą metody historycznej oraz metody historycznej z wagami.
+
+```{r}
+z <- dzienna_ramka$Stopy_log
+n <- length(z)
+window <- 250
+prob <- 0.01 
+
+VaR <- rep(NA, n) 
+es <- rep(NA, n)
+
+for (i in window:n) {
+  okno <- z[(i-window+1):i]
+  kwantyle <- quantile(okno, prob, type=2)
+  VaR[i] <- kwantyle
+  es[i] <- mean(okno[okno <= kwantyle])
+}
+
+df <- data.frame(
+  Data = dzienna_ramka$Data,
+  Rolling_VaR = VaR,
+  Rolling_ES = es,
+  Stopy = z
+)
+
+df <- df[window:n, ]
+
+```
+
+
+```{r fig.align='center', fig.height=3}
+ggplot(df, aes(x = Data)) +
+  geom_line(aes(y = Stopy, color = "Stopy Log")) +
+  geom_line(aes(y = Rolling_VaR, color = "VaR")) +
+  geom_line(aes(y = Rolling_ES, color = "ES")) +
+  labs(
+    title = "Metoda historyczna",
+    x = "Data",
+    y = "Wartość"
+  ) +
+  scale_color_manual(values = c("VaR" = "steelblue", "ES" = "red", "Stopy Log" = "grey")) +
+  theme_bw()
+
+```
+
+
+```{r fig.align='center'}
+
+z <- dzienna_ramka$Stopy_log
+n <- length(z)
+window <- 250
+prob <- 0.01 
+q <- 0.995  
+
+kwantyle_w <- rep(NA, n) 
+es_w <- rep(NA, n)
+
+wagi_tmp <- q ^ ((window - 1):0)
+wagi <- wagi_tmp * (1 - q) / (1 - q^window)
+
+for (i in window:n) {
+  okno <- z[(i-window+1):i]
+  
+  df_tmp <- data.frame(stopy = okno, wagi = wagi)
+  
+  df_tmp <- df_tmp[order(df_tmp$stopy), ]
+
+  df_tmp$wagi_skum <- cumsum(df_tmp$wagi)
+  
+  idx_var <- which(df_tmp$wagi_skum >= prob)[1]
+  VaR_val <- df_tmp$stopy[idx_var]
+  kwantyle_w[i] <- VaR_val
+  
+
+  ogon <- df_tmp[df_tmp$stopy <= VaR_val, ]
+
+  es_w[i] <- sum(ogon$stopy * ogon$wagi) / sum(ogon$wagi)
+}
+
+df_wazona <- data.frame(
+  Data = dzienna_ramka$Data,
+  Rolling_VaR = kwantyle_w,
+  Rolling_ES = es_w,
+  Stopy = z
+)
+
+df_wazona <- df_wazona[window:n, ]
+```
+
+```{r fig.align='center', fig.height=3}
+ggplot(df_wazona, aes(x = Data)) +
+  geom_line(aes(y = Stopy, color = "Stopy Log"), alpha = 0.5) +
+  geom_line(aes(y = Rolling_VaR, color = "VaR")) +
+  geom_line(aes(y = Rolling_ES, color = "ES")) +
+  labs(
+    title = paste0("Metoda Historyczna z Wagami"),
+    x = "Data",
+    y = "Wartość"
+  ) +
+  scale_color_manual(values = c("VaR" = "steelblue", 
+                                "ES" = "red", 
+                                "Stopy Log" = "grey")) +
+  theme_bw()
+
+```
+
+Analiza przebiegu zmienności VaR i ES pozwala zidentyfikować kluczowe momenty dla spółki Fast Retailing.
+
+Koło marca 2020 roku był najbardziej wyraźny skok ryzyka. W standardowej metodzie historycznej, po wystąpieniu ekstremalnej straty w marcu 2020, poziom VaR gwałtownie wzrósł i utrzymywał się na wysokim poziomie przez dokładnie 250 dni. Spowodowało to, że w drugiej połowie 2020 roku model był nadmiernie konserwatywny.
+
+ Na drugim wykresie (metoda z wagami) widać, że miary ryzyka znacznie szybciej "zapominają" o szoku z 2020 roku. Linie VaR i ES szybciej wracają do poziomów zbliżonych do bieżącej zmienności rynkowej, co pozwala na efektywniejsze zarządzanie kapitałem. 
+ 
+Okres 2022-2025: Widoczna jest podwyższona zmienność (szersze pasmo wahań VaR) w porównaniu do lat 2017-2019, co może być związane z globalną presją inflacyjną oraz osłabieniem jena, wpływającym na wycenę japońskich gigantów eksportowych.
+
+
+
+\newpage
+
+# Testy wsteczne
+
+Aby ocenić poprawność modelów VaR wykorzystano testy wsteczne. Test Kupca oraz Test Christoffersena. Badano dwa horyzonty czasowe: 100 oraz 250 dni.
+
+## Test kupca
+
+
+```{r}
+kupiec_test_pvalue <- function(x, prob=0.99) {
+  N <- length(x)
+  wyjatki <- sum(x)
+
+  p_obs <- wyjatki / N
+  p_exp <- 1 - prob 
+  
+  if (wyjatki == 0) return(1) 
+  
+  ln_L_null <- (N - wyjatki) * log(1 - p_exp) + wyjatki * log(p_exp)
+  ln_L_alt  <- (N - wyjatki) * log(1 - p_obs) + wyjatki * log(p_obs)
+  
+  LR <- -2 * (ln_L_null - ln_L_alt)
+  return(1 - pchisq(LR, df = 1))
+}
+
+
+historyczna <- df %>%
+  select(Data, Stopy, VaR = Rolling_VaR) %>% 
+  mutate(VaR = lag(VaR), Metoda = "Historyczna")
+
+
+wazona <- df_wazona %>%
+  select(Data, Stopy, VaR = Rolling_VaR) %>%
+  mutate(VaR = lag(VaR) , Metoda = "Ważona")
+
+
+wyniki <- rbind(historyczna, wazona) %>% na.omit()
+
+
+
+wyniki <- wyniki %>%
+  mutate(Wyjatek = ifelse(Stopy < VaR, 1, 0),
+         Punkt_Wyjatku = ifelse(Stopy < VaR, Stopy, NA)) %>%
+  group_by(Metoda) %>%
+  mutate(
+    P_val_100 = rollapply(Wyjatek, 100, function(x) kupiec_test_pvalue(x, prob=0.99), fill=NA, align="right"),
+    P_val_250 = rollapply(Wyjatek, 250, function(x) kupiec_test_pvalue(x, prob=0.99), fill=NA, align="right"),
+    Odrzucony_100 = ifelse(P_val_100 < 0.05, 1, 0),
+    Odrzucony_250 = ifelse(P_val_250 < 0.05, 1, 0)
+  ) %>% ungroup()
+```
+
+```{r}
+rysuj_metode_okno <- function(dane, nazwa_metody, okno_testu) {
+  
+  dane_sub <- dane %>% filter(Metoda == nazwa_metody)
+  
+  if(okno_testu == 100) {
+    dane_sub$Odrzucony <- dane_sub$Odrzucony_100
+  } else {
+    dane_sub$Odrzucony <- dane_sub$Odrzucony_250
+  }
+
+  odrzucenia <- dane_sub %>% 
+    select(Data, Odrzucony) %>% 
+    mutate(Start = Data - 0.5, End = Data + 0.5) %>% 
+    filter(Odrzucony == 1)
+  
+  ggplot(dane_sub, aes(x = Data)) +
+    geom_rect(data = odrzucenia, aes(xmin = Start, xmax = End, ymin = -Inf, ymax = Inf),
+              fill = "red", alpha = 0.2, inherit.aes = FALSE) +
+    geom_line(aes(y = Stopy), color = "grey80", linewidth=0.3) +
+    geom_line(aes(y = VaR, color = "VaR (99%)"), linewidth=0.8) +
+    geom_point(aes(y = Punkt_Wyjatku), color = "black", size = 1.5, shape=4) +
+    scale_color_manual(values = c("VaR (99%)" = "blue")) +
+    labs(title = paste("Metoda:", nazwa_metody, "| Horyzont testu:", okno_testu, "dni"), 
+         y = "Stopa zwrotu", x = "") +
+    theme_bw() + theme(legend.position = "none")
+}
+
+```
+
+
+```{r fig.align='center', fig.height=3}
+rysuj_metode_okno(wyniki, "Historyczna", 100)
+```
+
+```{r fig.align='center', fig.height=3}
+rysuj_metode_okno(wyniki, "Historyczna", 250)
+```
+
+```{r fig.align='center', fig.height=3}
+rysuj_metode_okno(wyniki, "Ważona", 100)
+```
+
+```{r fig.align='center', fig.height=3}
+rysuj_metode_okno(wyniki, "Ważona", 250)
+```
+
+
+```{r}
+
+tabela <- wyniki %>%
+  group_by(Metoda) %>%
+  summarise(
+    `Liczba dni` = n(),
+    `Liczba wyjatkow` = sum(Wyjatek), 
+    `Proc. Wyjatkow` = sprintf("%.2f%%", mean(Wyjatek)*100),
+    `Odrzucenia (100 dni)` = sprintf("%.1f%%", mean(Odrzucony_100, na.rm=TRUE)*100),
+    `Odrzucenia (250 dni)` = sprintf("%.1f%%", mean(Odrzucony_250, na.rm=TRUE)*100)
+  )
+
+tabela %>%
+  kable(format = "latex", booktabs = TRUE, caption = "Wyniki weryfikacji modelu VaR (Backtesting)", align = "c") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+
+```
+
+
+**Analiza Testu Kupca:**
+
+Analiza testów wstecznych pokazała, że Metoda Ważona lepiej radzi sobie w momentach gwałtownych zmian na rynku. W przypadku standardowej Metody Historycznej, nagły wzrost zmienności (taki jak wybuch pandemii w 2020 roku) powodował serię błędów modelu, ponieważ reagował on z opóźnieniem. Dodatkowo, po uspokojeniu sytuacji, model ten przez długi czas utrzymywał sztucznie zawyżony poziom ryzyka (tzw. efekt ducha), co prowadziło do braku jakichkolwiek wyjątków przez wiele miesięcy.
+
+Metoda Historyczna z Wagami okazała się bardziej elastyczna. Dzięki temu, że przypisuje większe znaczenie nowszym danym, prognozy VaR szybciej dostosowywały się do aktualnej sytuacji rynkowej. Potwierdza to mniejsza liczba dni, w których model ten był odrzucany przez testy statystyczne w krótkim horyzoncie czasowym.
+
+
+
+\newpage
+
+## Test Christoffersena
+
+```{r}
+
+
+christoffersen_test_pvalue <- function(przekroczenia) {
+  n <- length(przekroczenia)
+  if (n < 2) return(NA)
+  
+  stan_obecny <- przekroczenia[1:(n-1)]
+  stan_przyszly <- przekroczenia[2:n]
+  
+  n00 <- sum(stan_obecny == 0 & stan_przyszly == 0)
+  n01 <- sum(stan_obecny == 0 & stan_przyszly == 1)
+  n10 <- sum(stan_obecny == 1 & stan_przyszly == 0)
+  n11 <- sum(stan_obecny == 1 & stan_przyszly == 1)
+  
+  if ((n01 + n11) == 0 || (n00 + n10) == 0 || n01 == 0 || n11 == 0) {
+    return(1.0) 
+  }
+  
+  pi_01 <- n01 / (n00 + n01)
+  pi_11 <- n11 / (n10 + n11)
+  pi_all <- (n01 + n11) / (n00 + n01 + n10 + n11)
+  
+  ln_L_null <- (n00 + n10) * log(1 - pi_all) + (n01 + n11) * log(pi_all)
+  ln_L_alt  <- n00 * log(1 - pi_01) + n01 * log(pi_01) + 
+               n10 * log(1 - pi_11) + n11 * log(pi_11)
+               
+  LR_ind <- -2 * (ln_L_null - ln_L_alt)
+  
+  return(1 - pchisq(LR_ind, df = 1))
+}
+
+wyniki_all_final <- wyniki %>%
+  group_by(Metoda) %>%
+  mutate(
+    # Liczymy TYLKO Christoffersena
+    P_val_Christ_100 = rollapply(Wyjatek, 100, christoffersen_test_pvalue, fill=NA, align="right"),
+    P_val_Christ_250 = rollapply(Wyjatek, 250, christoffersen_test_pvalue, fill=NA, align="right"),
+    
+    # Decyzje (0/1)
+    Odrzucony_Christ_100 = ifelse(P_val_Christ_100 < 0.05, 1, 0),
+    Odrzucony_Christ_250 = ifelse(P_val_Christ_250 < 0.05, 1, 0)
+  ) %>% ungroup()
+
+
+
+tabela_christoffersen <- wyniki_all_final %>%
+  group_by(Metoda) %>%
+  summarise(
+    `Liczba dni` = n(),
+    `Liczba wyjatkow` = sum(Wyjatek),
+    `Proc. Wyjatkow` = sprintf("%.2f%%", mean(Wyjatek)*100),
+    `Odrzucenia (100 dni)` = sprintf("%.1f%%", mean(Odrzucony_Christ_100, na.rm=TRUE)*100),
+    `Odrzucenia (250 dni)` = sprintf("%.1f%%", mean(Odrzucony_Christ_250, na.rm=TRUE)*100)
+  )
+
+tabela_christoffersen %>%
+  kable(format = "latex", booktabs = TRUE, caption = "Wyniki Testu Christoffersena (Niezależność)", align = "c") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  add_header_above(c(" " = 3, "% Dni z odrzuceniem modelu" = 2))
+
+
+
+```
+
+```{r}
+
+dane_christ <- wyniki_all_final %>% 
+  filter(Metoda == "Historyczna")
+
+odrzucenia_christ <- dane_christ %>% 
+  select(Data, Odrzucony_Christ_250) %>% 
+  mutate(Start = Data - 0.5, End = Data + 0.5) %>% 
+  filter(Odrzucony_Christ_250 == 1)
+```
+
+```{r fig.align='center', fig.height=3}
+ggplot(dane_christ, aes(x = Data)) +
+  geom_rect(data = odrzucenia_christ, aes(xmin = Start, xmax = End, ymin = -Inf, ymax = Inf),
+            fill = "red", alpha = 0.2, inherit.aes = FALSE) +
+  
+  geom_line(aes(y = Stopy), color = "grey80", linewidth=0.3) +
+  geom_line(aes(y = VaR, color = "VaR (99%)"), linewidth=0.8) +
+  
+  geom_point(aes(y = Punkt_Wyjatku), color = "black", size = 1.5, shape=4) +
+  
+  scale_color_manual(values = c("VaR (99%)" = "blue")) +
+  labs(
+    title = "Test Christoffersena | Metoda Historyczna (Okno 250 dni)", 
+    y = "Stopa zwrotu", 
+    x = ""
+  ) +
+  theme_bw() + 
+  theme(legend.position = "none")
+
+```
+
+Tabela 4 prezentuje wyniki testu niezależności przekroczeń VaR. Kluczowym wskaźnikiem jest tutaj odsetek dni z odrzuceniem modelu, który informuje nas, jak często dany model generował błędy w seriach, zamiast pojedynczych, losowych przypadków.
+
+W horyzoncie 250 dni model historyczny został odrzucony przez 2,2% czasu. Oznacza to, że w pewnych okresach (widocznych na wykresie jako czerwone pionowe pasy w latach 2020 i 2021) wyjątki następowały jeden po drugim lub w bardzo bliskich odstępach czasu.
+
+
+
+
+# Podsumowanie
+
+
+Na przestrzeni lat, inwestycja w akcje spółki wiązała się z ryzykiem, szczególnie wysokim w okresie pandemii COVID-19, gdzie dzienne wahania przekroczyły 14%.
+
+Porównanie metod estymacji ryzyka wykazało przewagę Metody Historycznej z Wagami. Dzięki mechanizmowi szybszego zapominania starych danych, metoda ta generowała prognozy VaR, które lepiej podążały za bieżącą zmiennością rynku.
+
